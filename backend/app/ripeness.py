@@ -7,6 +7,7 @@ def color_ripeness(frame: np.ndarray, box) -> str | None:
     """Return a red/green appearance hint, never an independent detection."""
     h, w = frame.shape[:2]
     x1, y1, x2, y2 = map(float, box)
+    # Sample the fruit's center to reduce interference from stems and neighboring tomatoes.
     dx, dy = (x2 - x1) * 0.2, (y2 - y1) * 0.2
     x1, y1 = max(0, int(x1 + dx)), max(0, int(y1 + dy))
     x2, y2 = min(w, int(x2 - dx)), min(h, int(y2 - dy))

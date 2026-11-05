@@ -58,6 +58,7 @@ export function VideoPanel({ status, line, editing, onLineCommit }: Props) {
         </div>
       )}
 
+      {/* Decorative guide only; the backend count_trigger setting controls counting. */}
       <svg className="visual-guide" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
         <line x1="15" y1="62" x2="80" y2="31" />
       </svg>
