@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+backend/data/
+backend/models/*.pt
+!backend/models/best.pt
+backend/models/*.onnx
+node_modules/
+frontend/dist/
+*.mp4
+frontend/tsconfig.tsbuildinfo

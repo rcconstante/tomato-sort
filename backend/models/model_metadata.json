@@ -1,0 +1,33 @@
+{
+  "app": "TOMATO//SORT AI",
+  "model_architecture": "yolo11n",
+  "pretrained_weights": "yolo11n.pt",
+  "class_map": {
+    "0": "ripe",
+    "1": "unripe"
+  },
+  "dataset": {
+    "workspace": "ylli-uzfdv",
+    "project": "tomato-ripeness-tb3ho",
+    "version": 3,
+    "url": "https://universe.roboflow.com/ylli-uzfdv/tomato-ripeness-tb3ho/dataset/3",
+    "images": {
+      "train": 2307,
+      "val": 567
+    }
+  },
+  "imgsz": 640,
+  "epochs_configured": 80,
+  "epochs_run": 80,
+  "training_date": "2026-11-05T13:13:27.527039+00:00",
+  "ultralytics_version": "8.4.202",
+  "metrics": {
+    "val": {
+      "precision": 0.7530693592153916,
+      "recall": 0.8627481145101525,
+      "mAP50": 0.8719624154156846,
+      "mAP50-95": 0.6157731867868583
+    },
+    "test": null
+  }
+}
