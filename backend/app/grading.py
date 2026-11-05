@@ -27,6 +27,7 @@ class Grade:
     observations: int
     votes: dict[str, float]
     reason: str = ""
+    predicted_label: str | None = None
 
 
 @dataclass
@@ -44,7 +45,8 @@ class TrackVotes:
         self.counts[label] = self.counts.get(label, 0) + 1
         self.observations += 1
 
-    def finalize(self, min_observations: int, min_vote_share: float, certain_conf: float) -> Grade:
+    def finalize(self, min_observations: int, min_vote_share: float, certain_conf: float,
+                 require_certainty: bool = True) -> Grade:
         total = sum(self.weights.values())
         votes = {k: round(v / total, 3) for k, v in self.weights.items()} if total else {}
         if not self.weights:
@@ -53,13 +55,15 @@ class TrackVotes:
         share = self.weights[top] / total
         mean_conf = self.conf_sum[top] / self.counts[top]
         base = dict(confidence=round(mean_conf, 3), vote_share=round(share, 3),
-                    observations=self.observations, votes=votes)
+                    observations=self.observations, votes=votes, predicted_label=top)
         if self.observations < min_observations:
-            return Grade(UNCERTAIN, reason=f"only {self.observations} observation(s)", **base)
-        if share < min_vote_share:
-            return Grade(UNCERTAIN, reason=f"classes disagree ({share:.0%} {top})", **base)
-        if mean_conf < certain_conf:
-            return Grade(UNCERTAIN, reason=f"low confidence ({mean_conf:.2f})", **base)
+            return Grade(UNCERTAIN, reason=f"Too few frames: {self.observations} / {min_observations} required", **base)
+        if not require_certainty and sum(abs(weight - self.weights[top]) < 1e-9 for weight in self.weights.values()) > 1:
+            return Grade(UNCERTAIN, reason="Conflicting class predictions: no winning class", **base)
+        if require_certainty and share < min_vote_share:
+            return Grade(UNCERTAIN, reason=f"classes disagree: {share:.0%} agreement / {min_vote_share:.0%} required", **base)
+        if require_certainty and mean_conf < certain_conf:
+            return Grade(UNCERTAIN, reason=f"low confidence: {mean_conf:.0%} / {certain_conf:.0%} required", **base)
         return Grade(top, **base)
 
 

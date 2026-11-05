@@ -54,15 +54,18 @@ export function VideoPanel({ status, line, editing, onLineCommit }: Props) {
       ) : (
         <div className="video-empty">
           <div className="video-empty-title">No active source</div>
-          <div>Choose a video, camera or stream below and press Start.</div>
+          <div>Open Setup & controls, choose a source, then press Start.</div>
         </div>
       )}
 
-      {hasStream && (
+      <svg className="visual-guide" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        <line x1="15" y1="62" x2="80" y2="31" />
+      </svg>
+
+      {hasStream && state !== "running" && (
         <div className={`state-pill state-${state}`}>
           <span className="dot" />
           {STATE_LABEL[state] ?? state.toUpperCase()}
-          {state === "running" && <span className="muted">· {status!.fps.toFixed(0)} fps</span>}
         </div>
       )}
 

@@ -1,106 +1,241 @@
+<div align="center">
+
 # TOMATO//SORT AI
 
-Real-time tomato ripeness grading and conveyor-belt inspection.
+**See the tomato. Track its ripeness. Count each track.**
 
-A YOLO11 detector trained on the Roboflow dataset
-[`ylli-uzfdv/tomato-ripeness-tb3ho`](https://universe.roboflow.com/ylli-uzfdv/tomato-ripeness-tb3ho)
-finds every tomato in the frame. ByteTrack follows each one, and the tomato is graded **once**, when it crosses a
-virtual inspection line. A simulated sorter then routes it to **ACCEPT**, **REJECT** or **REVIEW**.
+A local computer-vision inspection app with live tomato highlighting, ripe/unripe classification, and a compact monitoring view.
 
+[![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Ultralytics YOLO](https://img.shields.io/badge/YOLO11-111827)](https://docs.ultralytics.com/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+
+[Quick start](#quick-start) · [Sample footage](assets/demo/tomato-conveyor.mp4) · [Training notebook](notebooks/TomatoSort_AI_Training.ipynb) · [Report an issue](https://github.com/rcconstante/tomato-sort/issues)
+
+</div>
+
+## Preview
+
+![Actual annotated tomato inference frame](assets/screenshots/inference-frame.jpg)
+
+*A frame captured from the running inference stream. Contours are estimated image boundaries, not learned segmentation masks. Track IDs and labels come from the inspection pipeline.*
+
+The dashboard places the video under a simple title bar, with the latest tomato crop and live counts beneath it. Setup, settings, and the inspection log are inside **Setup & controls**. The thin diagonal guide is decorative and has no effect on classification or counting.
+
+The repository includes a [sample conveyor clip](assets/demo/tomato-conveyor.mp4) and [trained weights](backend/models/best.pt), so you can run a local demonstration without training or providing an API key. The clip is illustrative footage, not a labeled accuracy benchmark.
+
+## What it does
+
+- Detects tomatoes with a fine-tuned YOLO11n model and tracks them with ByteTrack.
+- Classifies detected tracks as **ripe**, **unripe**, or **uncertain**.
+- Logs each track after confirmation, including tomatoes first detected beyond the optional inspection line.
+- Offers optional directional line-crossing counting and stricter quality-review checks.
+- Draws estimated contours, with bounding-box fallback where a contour is unreliable.
+- Records inspection events in SQLite and exports them as CSV.
+- Accepts uploaded video, a local video path, a webcam, or an RTSP/HTTP stream.
+
+Sorting is simulated: **ripe → ACCEPT**, **unripe → REJECT**, **uncertain → REVIEW**. The app does not control a physical conveyor or actuator and does not detect rot, damage, or surface anomalies.
+
+## Quick start
+
+Install Python, Node.js/npm, and Git. A CPU is sufficient; an NVIDIA CUDA GPU is optional. Keep both terminal processes below running.
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/rcconstante/tomato-sort.git
+cd tomato-sort
 ```
-notebooks/TomatoSort_AI_Training.ipynb   Colab notebook: download → analyse → train → evaluate → export
-backend/                                 FastAPI + Ultralytics YOLO + ByteTrack + OpenCV + SQLite
-frontend/                                React + Vite inspection dashboard
-tools/build_notebook.py                  regenerates the notebook from readable Python source
+
+### 2. Start the backend
+
+Windows PowerShell:
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-## 1. Train the model (Google Colab)
-
-1. Open `notebooks/TomatoSort_AI_Training.ipynb` in Colab (File → Upload notebook).
-2. Runtime → Change runtime type → **T4 GPU**.
-3. Add your Roboflow API key as a Colab secret named `ROBOFLOW_API_KEY` (🔑 sidebar). Without a secret, the notebook asks for it in a hidden prompt.
-4. Run all cells. The notebook:
-   - lists the published dataset versions and uses the latest one (or the one you set in `DATASET_VERSION`),
-   - reads the class names from `data.yaml`, checks that every image has a label file and shows annotated samples,
-   - trains `yolo11n.pt` for up to 80 epochs (patience 15) with hue augmentation turned off,
-   - evaluates on the validation split, and on the test split if the dataset has one,
-   - exports `best.pt`, `last.pt`, `model.onnx`, `model_metadata.json` and `training_metrics.json`.
-5. Copy `best.pt` and `model_metadata.json` into `backend/models/`.
-
-If dataset setup reports a missing validation split, check the directory listing in the error. The notebook
-recognizes `val`, `valid`, and `validation` folders, including exports with missing or stale YAML paths.
-It requires separate, non-empty training and validation image directories. When the export contains
-only training images, it creates a local, seeded 80/20 holdout by source-filename group, copying images
-and labels into separate folders while preserving the original download. Roboflow variants sharing
-the filename before `.rf.` stay together. This holdout is not an official dataset validation split and
-does not guarantee separation of related video frames or renamed duplicates. For final evaluation,
-prefer a version split by original capture/source before augmentation. Images without label files
-must be checked and labeled before the holdout can be created (empty files are valid for confirmed backgrounds).
-Do not point validation at the training images. After updating this notebook, upload the new copy to
-Colab and rerun the download and dataset-validation cells before training.
-
-The model only knows the classes in the dataset (`ripe` and `unripe`). Rotten, damaged and semi-ripe tomatoes are
-outside its scope.
-
-## 2. Run the inspection server
+macOS/Linux:
 
 ```bash
 cd backend
-python -m venv .venv
-.venv\Scripts\activate          # macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --host 127.0.0.1 --port 8000
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-For an NVIDIA GPU, install the CUDA build of PyTorch first (see pytorch.org). The server uses `cuda:0` automatically
-when it is available.
+For GPU installation, follow the [official PyTorch instructions](https://pytorch.org/get-started/locally/). The app selects CUDA when PyTorch reports it available; otherwise it uses the CPU.
 
-Without `backend/models/best.pt` the server still starts, but it reports *model not installed* and refuses to run
-inspection. It never substitutes another model or fake detections.
+### 3. Start the frontend
 
-## 3. Run the dashboard
+In a second terminal, from the repository root:
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Open http://localhost:5173. The dev server proxies `/api` and `/ws` to `127.0.0.1:8000`.
+Open [the dashboard](http://localhost:5173). Vite forwards `/api` and `/ws` to the local backend on port 8000.
 
-## How it works
+### 4. Inspect the sample
 
-| Stage | Detail |
+1. Expand **Setup & controls**.
+2. Choose **Upload MP4**, then select `assets/demo/tomato-conveyor.mp4` from your clone.
+3. Press **Start**. The latest inspection and totals update from actual inference results.
+4. For the default behavior, use **On confirmed detection** and **Simple ripe / unripe**.
+5. Turn off **Loop video files** if you want totals from one pass. A replay is counted as a new pass.
+6. Use **Reset** to clear the current counters and restart file playback. Previous database records remain available.
+
+For a clean recording view, open [presentation mode](http://localhost:5173/?presentation=1) after starting the source. It hides setup controls, while using the same stream and live data. Return to the normal dashboard to change settings.
+
+## Useful links
+
+| Resource | Link |
 |---|---|
-| Sources | Uploaded MP4, local video file path, webcam (index), RTSP or HTTP stream. Start / pause / resume / stop / reset. Live sources reconnect up to 5 times with backoff. |
-| Detection | `model.track(..., tracker="bytetrack.yaml", persist=True)` on every frame. |
-| Colours | Ripe = green, unripe = orange, below the *certain* threshold = grey. Each box shows `#track label confidence` and, once graded, its decision. |
-| Counting | Each track's centre is tested against the inspection line. A tomato is counted only when it crosses from one side to the other in the chosen direction, within the segment's extent, and only once per track. |
-| Grading | Every frame of a track adds a confidence-weighted vote (frames below the *certain* threshold count ¼). At the crossing, the track becomes **uncertain** instead of being forced into a class if it has fewer than *N* frames, its class votes disagree, or its mean confidence is low. |
-| Sorting | Default rules: ripe → ACCEPT, unripe → REJECT, uncertain → REVIEW. Rules can be changed per class in the dashboard. |
-| State resets | Each new source gets a fresh model instance, so ByteTrack IDs never carry over. Looping a video file or pressing Reset also clears tracking state. |
-| Storage | `backend/data/inspections.db` (SQLite) stores sessions and every inspection event. Export as CSV from the dashboard or `GET /api/inspections/export.csv`. |
+| Source repository | [rcconstante/tomato-sort](https://github.com/rcconstante/tomato-sort) |
+| Local dashboard | [localhost:5173](http://localhost:5173) |
+| Clean presentation view | [localhost:5173/?presentation=1](http://localhost:5173/?presentation=1) |
+| Backend health | [localhost:8000/api/health](http://localhost:8000/api/health) |
+| Interactive API documentation | [localhost:8000/docs](http://localhost:8000/docs) |
+| Open training in Colab | [TomatoSort AI notebook](https://colab.research.google.com/github/rcconstante/tomato-sort/blob/main/notebooks/TomatoSort_AI_Training.ipynb) |
+| Dataset version | [Roboflow tomato ripeness v3](https://universe.roboflow.com/ylli-uzfdv/tomato-ripeness-tb3ho/dataset/3) |
+| Included weights and metadata | [backend/models](backend/models) |
+| Sample video | [tomato-conveyor.mp4](assets/demo/tomato-conveyor.mp4) |
+| Issues and feedback | [GitHub Issues](https://github.com/rcconstante/tomato-sort/issues) |
 
-### API
+Local links work after you start the app. This repository is a locally run application; it does not provide a hosted public inference service.
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/api/health`, `/api/model` | Server and model status (classes, device, metadata) |
-| POST | `/api/model/reload` | Reload `best.pt` after copying it in |
-| POST | `/api/upload` | Upload a video (multipart `file`) and get back an `upload_id` |
-| POST | `/api/session/start` | `{"type": "upload" \| "file" \| "webcam" \| "rtsp", "value": "..."}` |
-| POST | `/api/session/pause` · `resume` · `stop` · `reset` | Session control |
-| GET / PATCH | `/api/settings` | Thresholds, line position and direction, display toggles, sorting rules |
-| GET | `/api/stream.mjpg` | Annotated MJPEG stream |
-| WS | `/ws` | Status every 250 ms and new inspection events (with a crop image of each tomato) |
-| GET | `/api/inspections`, `/api/sessions`, `/api/inspections/export.csv` | Stored records |
+## Counting and classification
 
-## Tests
+| Setting | Behavior |
+|---|---|
+| **On confirmed detection** — default | Logs a track once after at least two observations. A tied class vote can wait for additional observations before becoming uncertain. No line crossing is required. |
+| **On inspection-line crossing** | Logs only a track whose center is observed crossing the line segment in the selected direction. Late detections already beyond the line may not be counted. |
+| **Simple ripe / unripe** — default | Uses the winning tracked class without the strict confidence-rejection gate. A conservative red/green center-crop check can assist clear cases. |
+| **Strict quality review** | Disables color assistance and requires the configured observations, class agreement, and detector confidence. Failed checks become REVIEW. |
+| **Processing detail** | Defaults to 512-pixel inference. Higher settings are available but can slow CPU processing. |
 
-```bash
-cd backend
-pip install pytest
-python -m pytest -q
+The color check operates only inside an existing detection. It does not discover additional objects or measure physical ripeness. Tracks it changes are marked **Color-assisted classification** in their records. Ambiguous colors leave the model prediction unchanged.
+
+The main view deliberately omits confidence percentages. Detector scores and vote diagnostics remain in stored records and CSV exports. A stored detector score is not confidence in an overridden color-assisted class.
+
+Counts are **per track**, not guaranteed unique physical tomatoes. Occlusion or a changed track ID can cause an object to be counted again. Lighting, motion blur, overlap, camera angle, and background colors affect results. More permissive acquisition settings can retain weaker detections but can also increase false detections. The reference-style contour display does not make the model more accurate.
+
+## Optional training
+
+Retraining is not required to run the included model. To train your own:
+
+1. Open the [notebook in Google Colab](https://colab.research.google.com/github/rcconstante/tomato-sort/blob/main/notebooks/TomatoSort_AI_Training.ipynb).
+2. Select a GPU runtime, such as T4.
+3. Add `ROBOFLOW_API_KEY` in Colab Secrets and enable notebook access. Otherwise, the notebook prompts with hidden input. Never commit the key or notebook outputs containing credentials.
+4. Select a published dataset version and run the cells in order. Class names are read from `data.yaml`.
+5. Download the exports and replace `backend/models/best.pt` and `backend/models/model_metadata.json`. Reload the model from setup or restart the backend.
+
+The notebook exports `best.pt`, `last.pt`, optional ONNX weights, model metadata, and training metrics. Its readable source is [tools/build_notebook.py](tools/build_notebook.py).
+
+If an export contains only training images, the notebook creates separate local train/validation copies using a seeded source-filename grouping. Roboflow variants sharing the name before `.rf.` stay together, and original downloads remain intact. This does not guarantee separation of renamed duplicates or related video frames. Use a separately captured, source-grouped evaluation set for meaningful final accuracy measurement.
+
+### Recorded validation results
+
+The [included model metadata](backend/models/model_metadata.json) reports:
+
+| Metric | Recorded validation value |
+|---|---:|
+| Precision | 0.753 |
+| Recall | 0.863 |
+| mAP@50 | 0.872 |
+| mAP@50–95 | 0.616 |
+
+These are recorded validation metrics, not verified conveyor-counting accuracy. No independent test-set metrics are included. Runtime color assistance and counting changes are not represented by those model-validation metrics.
+
+## Stack and architecture
+
+| Layer | Technology |
+|---|---|
+| Detection | Ultralytics YOLO11n, PyTorch |
+| Tracking | ByteTrack with local acquisition configuration |
+| Image processing | OpenCV, NumPy, estimated GrabCut/color contours |
+| API and live updates | FastAPI, Uvicorn, WebSocket telemetry, MJPEG stream |
+| Persistence | SQLite |
+| Interface | React, TypeScript, Vite, CSS |
+| Training | Google Colab, Roboflow, Ultralytics |
+
+```text
+Video / camera / stream
+          ↓
+YOLO detection → ByteTrack → per-track class votes
+          ↓                       ↓
+Estimated outlines         counting trigger + grading
+          ↓                       ↓
+MJPEG video                SQLite events + WebSocket
+          └──────────── dashboard ─┘
 ```
 
-The tests cover vote finalisation, line-crossing direction and count-once behaviour.
+```text
+assets/                  Captured inference preview and sample footage
+backend/app/             API, model loading, inference, counting, and storage
+backend/models/          Included detector and recorded model metadata
+backend/tests/           Grading, counting, contour, color, and migration checks
+frontend/src/            Compact inspection UI and collapsible setup controls
+notebooks/               Google Colab training notebook
+tools/                   Notebook generator and dataset-path regression checks
+```
+
+## Development checks
+
+From the repository root on Windows:
+
+```powershell
+.\backend\.venv\Scripts\python.exe -m pip install pytest pyyaml
+.\backend\.venv\Scripts\python.exe -m pytest -q backend/tests
+.\backend\.venv\Scripts\python.exe -X utf8 -m unittest discover -s tools -p test_notebook_dataset.py
+npm --prefix frontend run build
+```
+
+Use the matching `.venv/bin/python` path on macOS/Linux. Regenerate the notebook after editing its source with `python tools/build_notebook.py`.
+
+The frontend build performs TypeScript checking. Backend checks cover line and detection counting, late unripe detections, count-once behavior, grading, existing-record migrations, color assistance, and contour fallback.
+
+## Configuration and API
+
+| Environment variable | Purpose |
+|---|---|
+| `TOMATOSORT_MODEL` | Override the path to `best.pt`; metadata is read from the same folder. |
+| `TOMATOSORT_DATA` | Override the directory for SQLite, uploads, and saved settings. |
+| `TOMATOSORT_BACKEND` | Backend URL used by the Vite development proxy. Default: `http://127.0.0.1:8000`. |
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/health`, `GET /api/model` | Health and installed-model information |
+| `POST /api/upload` | Upload a supported video |
+| `POST /api/session/start` | Start a source with `type` and `value` |
+| `POST /api/session/pause`, `/resume`, `/stop`, `/reset` | Playback and session controls |
+| `GET/PATCH /api/settings` | Inspection configuration |
+| `POST /api/model/reload` | Reload local weights |
+| `GET /api/stream.mjpg` | Annotated video stream |
+| `WS /ws` | Status and new inspection events |
+| `GET /api/inspections`, `/api/sessions`, `/api/inspections/export.csv` | Stored records and CSV export |
+
+## Troubleshooting
+
+- **No active source:** expand Setup & controls, upload a video, then press Start. Presentation mode intentionally hides controls.
+- **Model not installed:** verify `backend/models/best.pt` exists. The backend refuses inspection rather than substituting fake results.
+- **Unripe label but no log:** select On confirmed detection. Line mode requires an observed directional crossing.
+- **Counts keep increasing:** turn off Loop video files for a single pass. Track-ID changes can also cause duplicate physical-object counts.
+- **Slow inference:** select Fast (512), close other CPU-heavy tasks, try bounding-box display, or use a supported CUDA installation. There is no guaranteed frame rate.
+- **Outlines merge with the background:** switch to Bounding box. Estimated contours are sensitive to color and occlusion.
+- **Backend offline:** start Uvicorn on port 8000 and Vite on port 5173. For another backend address, set `TOMATOSORT_BACKEND` before starting Vite.
+
+## Data and licensing
+
+The local app stores uploaded clips, settings, and inspection records under `backend/data/`. These runtime files and secrets are excluded from Git. Inference uses local weights; a Roboflow key is only needed for the optional training download.
+
+Run the server on localhost as shown. It has no authentication layer and is intended for a trusted local environment.
+
+Third-party code, model tooling, and dataset rights remain subject to their own licenses. Review the [Ultralytics licensing terms](https://www.ultralytics.com/license) and the [dataset page](https://universe.roboflow.com/ylli-uzfdv/tomato-ripeness-tb3ho) before redistribution or commercial use. This repository does not add a separate project license.

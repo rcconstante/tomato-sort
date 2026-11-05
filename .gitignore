@@ -9,4 +9,11 @@ backend/models/*.onnx
 node_modules/
 frontend/dist/
 *.mp4
+!assets/demo/tomato-conveyor.mp4
 frontend/tsconfig.tsbuildinfo
+
+# Local credentials and assistant launch configuration
+.env
+.env.*
+!.env.example
+/.claude/

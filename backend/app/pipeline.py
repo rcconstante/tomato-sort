@@ -5,6 +5,7 @@ import base64
 import logging
 import threading
 import time
+from pathlib import Path
 from collections import deque
 from dataclasses import dataclass, field
 
@@ -15,6 +16,8 @@ from .config import Settings, SettingsStore
 from .db import Database, now_iso
 from .grading import UNCERTAIN, Grade, TrackVotes, category, crossed, side_of_line, within_segment
 from .model_manager import ModelManager
+from .outlines import tomato_contour
+from .ripeness import color_ripeness
 from .sources import SourceSpec, open_capture
 
 log = logging.getLogger("tomatosort.pipeline")
@@ -29,6 +32,7 @@ DECISION_COLOR = {"ACCEPT": GREEN, "REJECT": (60, 60, 230), "REVIEW": (0, 200, 2
 TRACK_TTL_FRAMES = 150      # forget tracks not seen for this many frames
 MAX_STREAM_WIDTH = 1280
 RECONNECT_ATTEMPTS = 5
+TRACKER_CONFIG = str(Path(__file__).with_name("bytetrack.yaml"))
 
 
 def color_for(label: str, conf: float, certain_conf: float) -> tuple[int, int, int]:
@@ -46,6 +50,11 @@ class TrackState:
     counted: bool = False
     decision: str | None = None
     final_label: str | None = None
+    final_prediction: str | None = None
+    final_confidence: float = 0.0
+    outline_frame: int = -100
+    outline_points: np.ndarray | None = None
+    color_assisted: bool = False
 
 
 class Pipeline:
@@ -265,7 +274,7 @@ class Pipeline:
         lx1, ly1, lx2, ly2 = s.line.x1 * w, s.line.y1 * h, s.line.x2 * w, s.line.y2 * h
 
         t0 = time.perf_counter()
-        result = model.track(frame, persist=True, tracker="bytetrack.yaml", conf=s.detect_conf,
+        result = model.track(frame, persist=True, tracker=TRACKER_CONFIG, conf=s.detect_conf,
                              imgsz=s.imgsz, device=self.models.device, verbose=False)[0]
         infer_ms = (time.perf_counter() - t0) * 1000
         names = self.models.names
@@ -284,17 +293,31 @@ class Pipeline:
                 for box, conf, cls, tid in zip(xyxy, confs, clss, ids):
                     label = names.get(int(cls), str(cls))
                     conf = float(conf)
+                    hint = color_ripeness(frame, box) if s.grading_mode == "binary" else None
+                    assisted = hint is not None and hint != category(label)
+                    if assisted:
+                        label = hint
                     if tid is None:
                         draw.append((box, None, label, conf, None))
                         continue
                     tr = self._tracks.setdefault(int(tid), TrackState())
+                    tr.color_assisted = tr.color_assisted or assisted
                     tr.votes.add(label, conf, s.certain_conf)
                     tr.last_seen = fi
                     cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
                     side = side_of_line(cx, cy, lx1, ly1, lx2, ly2)
-                    if (not tr.counted and tr.prev_side is not None
-                            and within_segment(cx, cy, lx1, ly1, lx2, ly2)
-                            and crossed(tr.prev_side, side, s.line.direction)):
+                    crossed_line = (tr.prev_side is not None
+                                    and within_segment(cx, cy, lx1, ly1, lx2, ly2)
+                                    and crossed(tr.prev_side, side, s.line.direction))
+                    confirmed = tr.votes.observations >= s.min_observations
+                    if confirmed and s.grading_mode == "binary":
+                        # Give an exactly tied prediction a few more observations
+                        # before logging it as uncertain.
+                        candidate = tr.votes.finalize(s.min_observations, s.min_vote_share,
+                                                      s.certain_conf, require_certainty=False)
+                        confirmed = candidate.label != UNCERTAIN or tr.votes.observations >= max(6, s.min_observations)
+                    should_count = confirmed if s.count_trigger == "detection" else crossed_line
+                    if not tr.counted and should_count:
                         self._inspect(int(tid), tr, frame, box, s, fi)
                     if side != 0:
                         tr.prev_side = side
@@ -309,15 +332,20 @@ class Pipeline:
             self._frame_seq += 1
 
     def _inspect(self, tid: int, tr: TrackState, frame: np.ndarray, box, s: Settings, fi: int) -> None:
-        grade: Grade = tr.votes.finalize(s.min_observations, s.min_vote_share, s.certain_conf)
+        grade: Grade = tr.votes.finalize(s.min_observations, s.min_vote_share, s.certain_conf,
+                                        require_certainty=s.grading_mode == "strict")
         cat = UNCERTAIN if grade.label == UNCERTAIN else category(grade.label)
         decision = s.sorting.get(cat, "REVIEW")
         tr.counted, tr.decision, tr.final_label = True, decision, grade.label
+        tr.final_prediction, tr.final_confidence = grade.predicted_label, grade.confidence
 
         row = {
             "session_id": self.session_id, "track_id": tid, "label": grade.label,
+            "predicted_label": grade.predicted_label,
             "confidence": grade.confidence, "vote_share": grade.vote_share, "observations": grade.observations,
-            "decision": decision, "reason": grade.reason, "frame_index": fi, "created_at": now_iso(),
+            "decision": decision,
+            "reason": grade.reason or ("Color-assisted classification" if tr.color_assisted else ""),
+            "frame_index": fi, "created_at": now_iso(),
         }
         row["id"] = self.db.add_inspection(row)
         self.total += 1
@@ -353,31 +381,53 @@ class Pipeline:
         if s.show_boxes:
             for box, tid, label, conf, tr in draw:
                 x1, y1, x2, y2 = map(int, box)
-                col = color_for(label, conf, s.certain_conf)
-                cv2.rectangle(out, (x1, y1), (x2, y2), col, thick)
-                text = f"#{tid} {label} {conf:.2f}" if tid is not None else f"{label} {conf:.2f}"
+                if tr is not None and tr.votes.weights and s.grading_mode == "binary":
+                    label = max(tr.votes.weights, key=tr.votes.weights.get)
+                col = color_for(label, conf, s.certain_conf if s.grading_mode == "strict" else 0)
                 if tr is not None and tr.counted:
-                    text += f" {tr.decision}"
-                    cv2.rectangle(out, (x1 - 2, y1 - 2), (x2 + 2, y2 + 2), DECISION_COLOR[tr.decision], 1)
+                    label, conf = tr.final_prediction or tr.final_label, tr.final_confidence
+                    col = DECISION_COLOR[tr.decision]
+                contour = self._outline(frame, box, tr) if s.outline_mode == "contour" else None
+                if contour is not None:
+                    rx, ry, rw, rh = cv2.boundingRect(contour)
+                    roi = out[ry:ry + rh, rx:rx + rw]
+                    overlay = roi.copy()
+                    cv2.fillPoly(overlay, [contour - (rx, ry)], col)
+                    cv2.addWeighted(overlay, 0.12, roi, 0.88, 0, dst=roi)
+                    cv2.polylines(out, [contour], True, col, thick, cv2.LINE_AA)
+                else:
+                    cv2.rectangle(out, (x1, y1), (x2, y2), col, thick, cv2.LINE_AA)
+                text = f"#{tid} {label}" if tid is not None else str(label)
+                if tr is not None and tr.counted:
+                    text += f" | {tr.decision}"
                 (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)
                 ty = max(th + 6, y1)
                 cv2.rectangle(out, (x1, ty - th - 6), (x1 + tw + 6, ty), col, -1)
                 cv2.putText(out, text, (x1 + 3, ty - 4), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (20, 20, 20), 1, cv2.LINE_AA)
 
-        if s.show_line:
+        if s.show_line and s.count_trigger == "line":
             lx1, ly1, lx2, ly2 = map(int, line)
             cv2.line(out, (lx1, ly1), (lx2, ly2), LINE_COLOR, thick + 1, cv2.LINE_AA)
-            # arrow(s) along the line normal showing the counting direction
-            mx, my = (lx1 + lx2) / 2, (ly1 + ly2) / 2
-            nx, ny = -(ly2 - ly1), (lx2 - lx1)
-            norm = max(1e-6, (nx * nx + ny * ny) ** 0.5)
-            nx, ny = nx / norm * h * 0.06, ny / norm * h * 0.06
-            signs = {"forward": [1], "reverse": [-1], "both": [1, -1]}[s.line.direction]
-            for sg in signs:
-                cv2.arrowedLine(out, (int(mx - sg * nx), int(my - sg * ny)), (int(mx + sg * nx), int(my + sg * ny)),
-                                LINE_COLOR, thick, cv2.LINE_AA, tipLength=0.35)
 
         if w > MAX_STREAM_WIDTH:
             out = cv2.resize(out, (MAX_STREAM_WIDTH, int(h * MAX_STREAM_WIDTH / w)), interpolation=cv2.INTER_AREA)
         ok, buf = cv2.imencode(".jpg", out, [cv2.IMWRITE_JPEG_QUALITY, 80])
         return buf.tobytes() if ok else b""
+
+    def _outline(self, frame: np.ndarray, box, track: TrackState | None) -> np.ndarray | None:
+        origin = np.asarray(box[:2], dtype=np.float32)
+        size = np.maximum(np.asarray(box[2:], dtype=np.float32) - origin, 1)
+        # Refit every third processed frame; map cached relative points to the
+        # current tracked box between fits to avoid repeated GrabCut overhead.
+        if track is None or self.frame_index - track.outline_frame >= 3:
+            points = tomato_contour(frame, box)
+            if track is None:
+                return points
+            track.outline_frame = self.frame_index
+            track.outline_points = (points.astype(np.float32) - origin) / size if points is not None else None
+        if track.outline_points is None:
+            return None
+        points = np.rint(track.outline_points * size + origin).astype(np.int32)
+        points[:, :, 0] = np.clip(points[:, :, 0], 0, frame.shape[1] - 1)
+        points[:, :, 1] = np.clip(points[:, :, 1], 0, frame.shape[0] - 1)
+        return points

@@ -161,7 +161,7 @@ def sessions(limit: int = 50):
 def export_csv(session_id: int | None = None):
     rows = db.inspections(session_id, 1_000_000)
     buf = io.StringIO()
-    fields = ["id", "session_id", "track_id", "label", "confidence", "vote_share", "observations",
+    fields = ["id", "session_id", "track_id", "label", "predicted_label", "confidence", "vote_share", "observations",
               "decision", "reason", "frame_index", "created_at"]
     writer = csv.DictWriter(buf, fieldnames=fields, extrasaction="ignore")
     writer.writeheader()

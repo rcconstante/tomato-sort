@@ -44,6 +44,9 @@ class Database:
         self._lock = threading.Lock()
         with self._lock:
             self._conn.executescript(SCHEMA)
+            columns = {row[1] for row in self._conn.execute("PRAGMA table_info(inspections)")}
+            if "predicted_label" not in columns:
+                self._conn.execute("ALTER TABLE inspections ADD COLUMN predicted_label TEXT")
             self._conn.commit()
 
     def start_session(self, source_type: str, source: str, model: str) -> int:
@@ -64,9 +67,10 @@ class Database:
         with self._lock:
             cur = self._conn.execute(
                 """INSERT INTO inspections (session_id, track_id, label, confidence, vote_share, observations,
-                   decision, reason, frame_index, created_at)
+                   decision, reason, frame_index, created_at, predicted_label)
                    VALUES (:session_id, :track_id, :label, :confidence, :vote_share, :observations,
-                   :decision, :reason, :frame_index, :created_at)""", row)
+                   :decision, :reason, :frame_index, :created_at, :predicted_label)""",
+                {**row, "predicted_label": row.get("predicted_label")})
             self._conn.commit()
             return cur.lastrowid
 

@@ -32,13 +32,16 @@ class InspectionLine(BaseModel):
 
 
 class Settings(BaseModel):
-    detect_conf: float = Field(0.25, ge=0.01, le=0.99, description="Minimum detector confidence passed to the tracker")
+    detect_conf: float = Field(0.15, ge=0.01, le=0.99, description="Minimum detector confidence passed to the tracker")
     certain_conf: float = Field(0.50, ge=0.01, le=0.99, description="Below this a detection is drawn grey and its vote is down-weighted")
-    min_observations: int = Field(3, ge=1, le=60, description="Frames a track must be seen before it can be graded")
+    min_observations: int = Field(2, ge=1, le=60, description="Frames a track must be seen before it can be graded")
+    grading_mode: Literal["binary", "strict"] = "binary"
+    count_trigger: Literal["detection", "line"] = "detection"
     min_vote_share: float = Field(0.65, ge=0.5, le=1.0, description="Winning class share of weighted votes needed to grade")
-    imgsz: int = Field(640, ge=320, le=1280)
+    imgsz: int = Field(512, ge=320, le=1280)
     line: InspectionLine = InspectionLine()
     show_boxes: bool = True
+    outline_mode: Literal["contour", "box"] = "contour"
     show_line: bool = True
     loop_video: bool = True
     realtime_playback: bool = True

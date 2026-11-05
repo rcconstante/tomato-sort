@@ -23,8 +23,6 @@ export function categoryOf(label: string): string {
 
 export const colorOf = (label: string) => CATEGORY_COLOR[categoryOf(label)] ?? "var(--uncertain)";
 
-export const pct = (v: number, digits = 0) => `${(v * 100).toFixed(digits)}%`;
-
 export const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export function clockTime(iso: string) {

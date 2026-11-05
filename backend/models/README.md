@@ -1,11 +1,11 @@
 # Model folder
 
-Put the files exported by `notebooks/TomatoSort_AI_Training.ipynb` (cell 10, "Export model and metadata") here:
+This folder includes a trained detector and its metadata. To replace them, use the export section of [the training notebook](../../notebooks/TomatoSort_AI_Training.ipynb):
 
 ```
 backend/models/
 ├── best.pt                 required: the trained YOLO detector
-└── model_metadata.json     recommended: shown in the dashboard (dataset version, metrics)
+└── model_metadata.json     recommended: recorded dataset version and validation metrics
 ```
 
 The server never falls back to a different model or simulated detections. Without `best.pt` the dashboard

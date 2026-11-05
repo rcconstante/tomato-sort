@@ -14,10 +14,13 @@ export interface Settings {
   detect_conf: number;
   certain_conf: number;
   min_observations: number;
+  grading_mode: "binary" | "strict";
+  count_trigger: "detection" | "line";
   min_vote_share: number;
   imgsz: number;
   line: InspectionLine;
   show_boxes: boolean;
+  outline_mode: "contour" | "box";
   show_line: boolean;
   loop_video: boolean;
   realtime_playback: boolean;
@@ -58,6 +61,7 @@ export interface InspectionEvent {
   label: string;
   category: string;
   confidence: number;
+  predicted_label: string | null;
   vote_share: number;
   observations: number;
   decision: Decision;

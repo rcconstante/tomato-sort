@@ -3,7 +3,7 @@ import { api } from "./api";
 import { EventLog } from "./components/EventLog";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SourceControls } from "./components/SourceControls";
-import { LatestInspection, StatsPanel } from "./components/StatsPanel";
+import { InspectionSummary } from "./components/InspectionSummary";
 import { VideoPanel } from "./components/VideoPanel";
 import type { InspectionLine, ModelStatus, Settings } from "./types";
 import { useTelemetry } from "./useTelemetry";
@@ -61,35 +61,10 @@ export default function App() {
 
   const classes = model ? Object.values(model.classes) : [];
   const modelReady = !!model?.installed;
-  const meta = model?.metadata;
-  const valMap = meta?.metrics?.test?.mAP50 ?? meta?.metrics?.val?.mAP50;
+  const presentation = new URLSearchParams(window.location.search).has("presentation");
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark">TOMATO</span>
-          <span className="brand-slash">//</span>
-          <span className="brand-mark">SORT</span>
-          <span className="brand-ai">AI</span>
-          <span className="brand-sub">Conveyor ripeness inspection</span>
-        </div>
-        <div className="topbar-right">
-          {modelReady && (
-            <span className="pill">
-              {meta?.model_architecture ?? "best.pt"}
-              {meta?.dataset?.version != null && ` · dataset v${meta.dataset.version}`}
-              {valMap != null && ` · mAP50 ${(valMap * 100).toFixed(1)}%`}
-              {` · ${model!.device}`}
-            </span>
-          )}
-          <span className={connected ? "pill ok" : "pill bad"}>
-            <span className="dot" />
-            {connected ? "Backend connected" : "Backend offline"}
-          </span>
-        </div>
-      </header>
-
+    <div className={presentation ? "app presentation" : "app"}>
       {!connected && (
         <div className="banner">
           Can't reach the inference server on port 8000. Start it from <code>backend/</code> with{" "}
@@ -105,32 +80,22 @@ export default function App() {
         </div>
       )}
 
-      <main className="layout">
-        <section className="col-main">
-          <div className="panel video-panel">
+      <main className="inspection-shell">
+        <section className="inspection-card" aria-label="Tomato ripeness inspection">
+          <header className="inspection-heading"><h1>Tomato Ripeness <span>Inspection</span></h1></header>
             <VideoPanel
               status={status}
               line={settings?.line ?? null}
-              editing={editingLine}
+              editing={editingLine && settings?.count_trigger === "line"}
               onLineCommit={(line: InspectionLine) => changeSettings({ line })}
             />
-            {status?.source.name && (
-              <div className="source-meta muted small">
-                {status.source.name}
-                {status.source.width ? ` · ${status.source.width}×${status.source.height}` : ""}
-                {status.source.fps ? ` · ${status.source.fps} fps` : ""}
-                {` · frame ${status.frame_index}`}
-                {status.loops > 0 && ` · loop ${status.loops + 1}`}
-              </div>
-            )}
-          </div>
-          <SourceControls status={status} modelReady={modelReady} />
-          <EventLog events={events} sessionId={status?.session_id ?? null} />
+          <InspectionSummary latest={events[0] ?? null} status={status} />
         </section>
-
-        <aside className="col-side">
-          <LatestInspection latest={events[0] ?? null} />
-          <StatsPanel status={status} classes={classes} />
+        {status?.error && <div className="error" role="alert">{status.error}</div>}
+        {!presentation && <details className="setup-panel">
+          <summary>Setup & controls</summary>
+          <div className="setup-grid">
+          <SourceControls status={status} modelReady={modelReady} />
           {settings && (
             <SettingsPanel
               settings={settings}
@@ -140,8 +105,10 @@ export default function App() {
               onChange={changeSettings}
             />
           )}
+          </div>
           {settingsError && <div className="error">{settingsError}</div>}
-        </aside>
+          <EventLog events={events} sessionId={status?.session_id ?? null} />
+        </details>}
       </main>
     </div>
   );

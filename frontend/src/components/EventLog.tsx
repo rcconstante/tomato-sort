@@ -1,4 +1,4 @@
-import { DECISION_COLOR, capitalize, clockTime, colorOf, pct } from "../format";
+import { DECISION_COLOR, capitalize, clockTime, colorOf } from "../format";
 import type { InspectionEvent } from "../types";
 
 export function EventLog({ events, sessionId }: { events: InspectionEvent[]; sessionId: number | null }) {
@@ -21,9 +21,8 @@ export function EventLog({ events, sessionId }: { events: InspectionEvent[]; ses
                 <th>Time</th>
                 <th>Track</th>
                 <th>Grade</th>
-                <th>Conf.</th>
-                <th>Agree</th>
                 <th>Decision</th>
+                <th>Reason</th>
               </tr>
             </thead>
             <tbody>
@@ -35,19 +34,19 @@ export function EventLog({ events, sessionId }: { events: InspectionEvent[]; ses
                   <td>
                     <span className="dot" style={{ background: colorOf(e.label) }} /> {capitalize(e.label)}
                   </td>
-                  <td className="mono">{pct(e.confidence)}</td>
-                  <td className="mono">{pct(e.vote_share)}</td>
                   <td>
                     <span className="decision-chip" style={{ background: DECISION_COLOR[e.decision] }}>
                       {e.decision}
                     </span>
                   </td>
+                  <td className="event-reason">{e.reason || "Grading checks passed"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
+      <p className="note small">Each track is counted once using the selected counting trigger. Uncertain means there was not enough evidence under the selected grading mode.</p>
     </div>
   );
 }

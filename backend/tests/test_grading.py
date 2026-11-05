@@ -35,6 +35,31 @@ def test_votes_uncertain_when_low_confidence():
         v.add("ripe", 0.3, 0.5)
     g = v.finalize(3, 0.65, 0.5)
     assert g.label == UNCERTAIN and "low confidence" in g.reason
+    assert g.predicted_label == "ripe"
+    assert g.vote_share == 1.0
+    assert "30% / 50% required" in g.reason
+
+
+def test_simple_mode_uses_winning_label_without_confidence_gate():
+    votes = TrackVotes()
+    for _ in range(4):
+        votes.add("unripe", 0.35, 0.5)
+    grade = votes.finalize(2, 0.65, 0.5, require_certainty=False)
+    assert grade.label == "unripe" and grade.confidence == 0.35
+
+
+def test_simple_mode_still_requires_observations():
+    votes = TrackVotes()
+    votes.add("ripe", 0.9, 0.5)
+    assert votes.finalize(2, 0.65, 0.5, require_certainty=False).label == UNCERTAIN
+
+
+def test_simple_mode_does_not_guess_on_equal_votes():
+    votes = TrackVotes()
+    votes.add("ripe", 0.8, 0.5)
+    votes.add("unripe", 0.8, 0.5)
+    grade = votes.finalize(2, 0.65, 0.5, require_certainty=False)
+    assert grade.label == UNCERTAIN and "no winning class" in grade.reason
 
 
 def test_line_crossing_direction():
